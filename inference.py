@@ -431,7 +431,7 @@ def predict_video_async_fp16(model, input_path, output_path, device, batch_size=
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     out_width, out_height = 256, 256
 
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    fourcc = cv2.VideoWriter_fourcc(*'avc1')
     out = cv2.VideoWriter(output_path, fourcc, fps, (out_width, out_height))
 
     print(f"Processing video: {total_frames} frames at {fps:.1f} native FPS (Batch Size: {batch_size})...")
