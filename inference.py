@@ -12,6 +12,7 @@ from time import perf_counter
 from queue import Queue
 import threading
 
+
 class InferenceBitConv2d(nn.Module):
     """Loads INT8 weights and FP32 scales for memory-efficient inference."""
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, bias=False):
@@ -49,13 +50,11 @@ class DoubleConv(nn.Module):
     def forward(self, x): return self.block(x)
 
 
-
 class Down(nn.Module):
     def __init__(self, in_ch, out_ch):
         super().__init__()
         self.block = nn.Sequential(nn.MaxPool2d(2), DoubleConv(in_ch, out_ch))
     def forward(self, x): return self.block(x)
-
 
 
 class Up(nn.Module):
@@ -153,9 +152,9 @@ def unnormalize(tensor):
     img = np.clip(img, 0, 1)
     return (img * 255).astype(np.uint8)
 
-
-INPUT_VIDEO_PATH = "test_videos/test_video.mp4"
-OUTPUT_VIDEO_PATH = "segmented_output.avi"
+# you can put your own video path here for testing
+INPUT_VIDEO_PATH = "test_videos/test_video1.mp4"
+OUTPUT_VIDEO_PATH = "segmented_output.mp4"
 MODEL_WEIGHTS = "bitnet_ternary_exported.pth"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -165,7 +164,6 @@ CLASS_COLORS = {
     1: np.array([0, 255, 0]),     # Road
     2: np.array([255, 0, 0])      # Obstacle
 }
-
 
 
 def load_ternary_model(model_path, device):
@@ -204,7 +202,7 @@ def predict_video(model, input_path, output_path, device, batch_size=14):
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     out_width, out_height = 256, 256
 
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    fourcc = cv2.VideoWriter_fourcc(*'avc1')
     out = cv2.VideoWriter(output_path, fourcc, fps, (out_width, out_height))
 
     print(f"Processing video: {total_frames} frames at {fps:.1f} FPS (Batch Size: {batch_size})...")
@@ -226,31 +224,26 @@ def predict_video(model, input_path, output_path, device, batch_size=14):
                 img_t, _ = joint_augment(raw_img, dummy_mask, img_size=(256, 256), is_train=False)
                 batch_tensors.append(img_t)
 
-            # If our batch is full, OR the video ended but we still have frames in the buffer
+            # if the buffer is full
             if len(batch_tensors) == batch_size or (not ret and len(batch_tensors) > 0):
                 print(len(batch_tensors))
-                # 1. Stack the list of tensors into a single batch: [Batch, 3, 256, 256]
                 img_t_batch = torch.stack(batch_tensors).to(device)
                 if device.type == 'cuda':
                     torch.cuda.synchronize()
                 start = perf_counter()
-                # 2. Parallel Inference on the GPU
                 with torch.no_grad():
                     logits = model(img_t_batch)
-                    # Get predictions for the whole batch at once: [Batch, 256, 256]
                     preds = torch.argmax(logits, dim=1).cpu().numpy()
                 if device.type == 'cuda':
                     torch.cuda.synchronize()
                 end = perf_counter()
                 duration_ms = (end - start) * 1000
                 inference_times.append(duration_ms)
-                # 3. CPU Post-processing & Writing (Loop through the processed batch)
                 for i in range(len(batch_tensors)):
-                    # Grab the individual tensor and prediction from the batch
                     single_img_t = batch_tensors[i].cpu()
                     pred = preds[i]
 
-                    # Visualization & Blending
+
                     img_display = unnormalize(single_img_t)
                     img_display_float = img_display.astype(np.float32)
                     if img_display_float.max() > 2.0:
@@ -264,11 +257,9 @@ def predict_video(model, input_path, output_path, device, batch_size=14):
                     overlay_img = (1 - alpha) * img_display_float + alpha * color_mask
                     overlay_img = np.clip(overlay_img, 0.0, 1.0)
 
-                    # Convert to OpenCV format
                     overlay_uint8 = (overlay_img * 255).astype(np.uint8)
                     overlay_bgr = cv2.cvtColor(overlay_uint8, cv2.COLOR_RGB2BGR)
 
-                    # Write frame to output video
                     out.write(overlay_bgr)
 
                     # Progress tracker
@@ -277,10 +268,7 @@ def predict_video(model, input_path, output_path, device, batch_size=14):
                         current_avg = sum(inference_times) / len(inference_times)
                         print(f"Processed {frame_count}/{total_frames} frames... | Avg latency: {current_avg:.2f} ms")
 
-                # Clear the buffer for the next batch
                 batch_tensors = []
-
-            # Break the while loop if the video has ended
             if not ret:
                 break
 
@@ -305,27 +293,23 @@ def predict_video_async(model, input_path, output_path, device, batch_size=14):
         print(f"Error: Video file '{input_path}' not found.")
         return
 
-    # 1. Initialize Video Capture & Writer
+    # initialize Video Capture & Writer
     cap = cv2.VideoCapture(input_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     out_width, out_height = 256, 256
 
-    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    fourcc = cv2.VideoWriter_fourcc(*'avc1')
     out = cv2.VideoWriter(output_path, fourcc, fps, (out_width, out_height))
 
     print(f"Processing video: {total_frames} frames at {fps:.1f} native FPS (Batch Size: {batch_size})...")
     
-    # 2. Setup Asynchronous Queues
-    # Maxsize prevents RAM explosions if the reader is faster than the GPU
     input_queue = Queue(maxsize=batch_size * 4) 
     output_queue = Queue(maxsize=batch_size * 4)
 
-    # Tracking variables (Use lists so threads can modify them)
     inference_times = []
     frames_processed = [0] 
 
-    # --- THREAD 1: The Reader ---
     def reader_worker():
         while cap.isOpened():
             ret, frame = cap.read()
@@ -337,20 +321,18 @@ def predict_video_async(model, input_path, output_path, device, batch_size=14):
             dummy_mask = Image.new("L", raw_img.size)
 
             img_t, _ = joint_augment(raw_img, dummy_mask, img_size=(256, 256), is_train=False)
-            input_queue.put(img_t) # Push to GPU waiting line
+            input_queue.put(img_t)
             
-        input_queue.put(None) # Poison pill to tell the GPU the video is done
+        input_queue.put(None)
 
-    # --- THREAD 2: The Writer ---
     def writer_worker():
         while True:
             item = output_queue.get()
-            if item is None: # Poison pill received, stop writing
+            if item is None:
                 break
                 
             batch_tensors, preds = item
             
-            # CPU Post-processing & Writing 
             for i in range(len(batch_tensors)):
                 single_img_t = batch_tensors[i].cpu()
                 pred = preds[i]
@@ -377,25 +359,21 @@ def predict_video_async(model, input_path, output_path, device, batch_size=14):
                 if frames_processed[0] % 100 == 0:
                     print(f"Written {frames_processed[0]}/{total_frames} frames to disk...")
 
-    # 3. Start the helper threads
     reader_thread = threading.Thread(target=reader_worker)
     writer_thread = threading.Thread(target=writer_worker)
     reader_thread.start()
     writer_thread.start()
 
-    # --- MAIN THREAD: The GPU Engine ---
     start_time_total = perf_counter()
     batch_tensors = []
 
     try:
         while True:
-            # Get preprocessed frame from reader
             img_t = input_queue.get()
             
             if img_t is not None:
                 batch_tensors.append(img_t)
 
-            # If batch is full, or we received the EOF signal but have leftover frames
             if len(batch_tensors) == batch_size or (img_t is None and len(batch_tensors) > 0):
                 img_t_batch = torch.stack(batch_tensors).to(device)
                 
@@ -408,16 +386,13 @@ def predict_video_async(model, input_path, output_path, device, batch_size=14):
                     
                 if device.type == 'cuda': torch.cuda.synchronize()
                 end_inf = perf_counter()
-                
-                # Note: We divide by len(batch_tensors) to get the true *per frame* latency
                 inference_times.append(((end_inf - start_inf) * 1000) / len(batch_tensors))
-                
-                # Push the finished batch to the writer thread
+
                 output_queue.put((batch_tensors, preds))
                 batch_tensors = []
 
             if img_t is None:
-                output_queue.put(None) # Tell writer we are done
+                output_queue.put(None)
                 break
 
     except KeyboardInterrupt:
@@ -425,7 +400,6 @@ def predict_video_async(model, input_path, output_path, device, batch_size=14):
         output_queue.put(None)
 
     finally:
-        # 4. Clean up and wait for threads to finish saving the file
         reader_thread.join()
         writer_thread.join()
         cap.release()
@@ -443,87 +417,136 @@ def predict_video_async(model, input_path, output_path, device, batch_size=14):
         print(f"Pure GPU Inference Latency: {avg_time:.2f} ms per frame")
 
 
-'''
-def predict_video(model, input_path, output_path, device):
-    """Runs inference frame-by-frame on a video and saves the segmented output safely."""
+def predict_video_async_fp16(model, input_path, output_path, device, batch_size=20):
+    """Runs FP16 multithreaded batch inference (Best Performing so far)"""
     if not os.path.exists(input_path):
         print(f"Error: Video file '{input_path}' not found.")
         return
 
-    # 1. Initialize Video Capture
+    print("Converting floating-point layers to FP16 (Half-Precision)...")
+    model = model.half() 
+
     cap = cv2.VideoCapture(input_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
     out_width, out_height = 256, 256
 
-    # FIX 1: Change codec to 'avc1' (H.264) which is much better supported on Linux
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     out = cv2.VideoWriter(output_path, fourcc, fps, (out_width, out_height))
 
-    print(f"Processing video: {total_frames} frames at {fps:.1f} FPS...")
-    frame_count = 0
-    start_time = perf_counter()
-    # FIX 2: Use try/finally to ensure the video always saves, even if you interrupt it
-    try:
+    print(f"Processing video: {total_frames} frames at {fps:.1f} native FPS (Batch Size: {batch_size})...")
+    
+    input_queue = Queue(maxsize=batch_size * 4) 
+    output_queue = Queue(maxsize=batch_size * 4)
+
+    inference_times = []
+    frames_processed = [0] 
+
+    def reader_worker():
         while cap.isOpened():
             ret, frame = cap.read()
-            if not ret:
-                break
-
-            # Preprocess
+            if not ret: break
+            
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             raw_img = Image.fromarray(frame_rgb)
             dummy_mask = Image.new("L", raw_img.size)
 
             img_t, _ = joint_augment(raw_img, dummy_mask, img_size=(256, 256), is_train=False)
-            img_t_batch = img_t.unsqueeze(0).to(device)
+            input_queue.put(img_t) 
+            
+        input_queue.put(None) 
 
-            # Inference
-            with torch.no_grad():
-                logits = model(img_t_batch)
-                pred = torch.argmax(logits, dim=1).squeeze(0).cpu().numpy()
+    def writer_worker():
+        while True:
+            item = output_queue.get()
+            if item is None: break
+                
+            batch_tensors, preds = item
+            
+            for i in range(len(batch_tensors)):
+                single_img_t = batch_tensors[i].float().cpu()
+                pred = preds[i]
 
-            # Visualization & Blending
-            img_display = unnormalize(img_t.squeeze(0).cpu())
-            img_display_float = img_display.astype(np.float32)
-            if img_display_float.max() > 2.0:
-                img_display_float /= 255.0
+                img_display = unnormalize(single_img_t)
+                img_display_float = img_display.astype(np.float32)
+                if img_display_float.max() > 2.0:
+                    img_display_float /= 255.0
 
-            color_mask = np.zeros_like(img_display_float)
-            for cls_idx, color in CLASS_COLORS.items():
-                color_mask[pred == cls_idx] = np.array(color) / 255.0
+                color_mask = np.zeros_like(img_display_float)
+                for cls_idx, color in CLASS_COLORS.items():
+                    color_mask[pred == cls_idx] = np.array(color) / 255.0
 
-            alpha = 0.4
-            overlay_img = (1 - alpha) * img_display_float + alpha * color_mask
-            overlay_img = np.clip(overlay_img, 0.0, 1.0)
+                alpha = 0.4
+                overlay_img = (1 - alpha) * img_display_float + alpha * color_mask
+                overlay_img = np.clip(overlay_img, 0.0, 1.0)
 
-            # Convert to OpenCV format
-            overlay_uint8 = (overlay_img * 255).astype(np.uint8)
-            overlay_bgr = cv2.cvtColor(overlay_uint8, cv2.COLOR_RGB2BGR)
+                overlay_uint8 = (overlay_img * 255).astype(np.uint8)
+                overlay_bgr = cv2.cvtColor(overlay_uint8, cv2.COLOR_RGB2BGR)
 
-            # Write frame to output video
-            out.write(overlay_bgr)
+                out.write(overlay_bgr)
+                
+                frames_processed[0] += 1
+                if frames_processed[0] % 100 == 0:
+                    print(f"Written {frames_processed[0]}/{total_frames} frames to disk...")
 
-            # Progress tracker
-            frame_count += 1
-            if frame_count % 30 == 0:
-                print(f"Processed {frame_count}/{total_frames} frames...")
+    reader_thread = threading.Thread(target=reader_worker)
+    writer_thread = threading.Thread(target=writer_worker)
+    reader_thread.start()
+    writer_thread.start()
+    start_time_total = perf_counter()
+    batch_tensors = []
+
+    try:
+        while True:
+            img_t = input_queue.get()
+            
+            if img_t is not None:
+                batch_tensors.append(img_t)
+
+            if len(batch_tensors) == batch_size or (img_t is None and len(batch_tensors) > 0):
+                img_t_batch = torch.stack(batch_tensors).to(device).half() 
+                
+                if device.type == 'cuda': torch.cuda.synchronize()
+                start_inf = perf_counter()
+                
+                with torch.no_grad():
+                    logits = model(img_t_batch)
+                    preds = torch.argmax(logits, dim=1).cpu().numpy()
+                    
+                if device.type == 'cuda': torch.cuda.synchronize()
+                end_inf = perf_counter()
+                
+                inference_times.append(((end_inf - start_inf) * 1000) / len(batch_tensors))
+                
+                output_queue.put((batch_tensors, preds))
+                batch_tensors = []
+
+            if img_t is None:
+                output_queue.put(None) 
+                break
 
     except KeyboardInterrupt:
-        # If you press Ctrl+C, it catches it here gracefully
-        print("\nInference stopped early by user. Finalizing the video...")
+        print("\nInference stopped early by user. Emptying queues and finalizing...")
+        output_queue.put(None)
 
     finally:
-        # This guarantees the video file is closed and saved properly no matter what
+        reader_thread.join()
+        writer_thread.join()
         cap.release()
         out.release()
-        end_time = perf_counter()
-        print(f"Video safely finalized and saved to '{output_path}'")
-        print(f"time taken: {round(end_time - start_time, 2)}")
-'''
+        
+        end_time_total = perf_counter()
+        total_time = round(end_time_total - start_time_total, 2)
+        achieved_fps = round(frames_processed[0] / total_time, 2) if total_time > 0 else 0
+        avg_time = sum(inference_times) / len(inference_times) if inference_times else 0
+        
+        print(f"\n--- FP16 ASYNC PERFORMANCE SUMMARY ---")
+        print(f"Total time taken: {total_time} seconds")
+        print(f"End-to-End Processing Speed: {achieved_fps} FPS")
+        print(f"Pure GPU Inference Latency: {avg_time:.2f} ms per frame")
+
 
 if __name__ == "__main__":
     loaded_model = load_ternary_model(MODEL_WEIGHTS, DEVICE)
     if loaded_model is not None:
-        predict_video_async(loaded_model, INPUT_VIDEO_PATH, OUTPUT_VIDEO_PATH, DEVICE)
+        predict_video_async_fp16(loaded_model, INPUT_VIDEO_PATH, OUTPUT_VIDEO_PATH, DEVICE)
