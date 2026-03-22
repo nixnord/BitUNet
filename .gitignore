@@ -2,3 +2,4 @@ test_videos
 test_images
 dev
 bitnet_best.pth
+*.avi
