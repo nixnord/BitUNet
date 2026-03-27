@@ -11,8 +11,6 @@ BitUNet combines two established techniques:
 
 The first encoder block and the final classification head are kept at FP32 precision to preserve input statistics and output boundary resolution. All intermediate layers use ternary convolutions. The base channel count is widened to 72 (from the standard 64) to compensate for the reduced representational capacity of ternary weights.
 
-For a detailed discussion of the architecture, quantization mechanics, training pipeline, and inference optimizations, see [DOCUMENTATION.md](DOCUMENTATION.md).
-
 ## Performance
 
 Measured with FP16 asynchronous inference (`predict_video_async_fp16`):
