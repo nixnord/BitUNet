@@ -1,5 +1,7 @@
 # BitUNet
 
+Authors: [Prochiyamaan Shri Deka](https://github.com/psd688), [Anubhav Kalita](https://github.com/nixnord), [Bisal Prasad](https://github.com/bisal2003)
+
 A 1.58-bit ternary-quantized U-Net for real-time road scene segmentation. The model constrains all interior convolutional weights to {-1, 0, +1} using the absmean quantization scheme from BitNet b1.58, achieving a ~40 MB checkpoint size and 160+ FPS throughput on data center hardware.
 
 ## Overview
