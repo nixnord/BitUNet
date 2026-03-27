@@ -153,7 +153,7 @@ def unnormalize(tensor):
     return (img * 255).astype(np.uint8)
 
 # you can put your own video path here for testing
-INPUT_VIDEO_PATH = "test_videos/test_video1.mp4"
+INPUT_VIDEO_PATH = "test_videos/test_video.mp4"
 OUTPUT_VIDEO_PATH = "segmented_output.mp4"
 MODEL_WEIGHTS = "bitnet_ternary_exported.pth"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

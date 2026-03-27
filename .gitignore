@@ -4,3 +4,4 @@ dev
 bitnet_best.pth
 *.avi
 *.mp4
+__pycache__
