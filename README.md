@@ -25,9 +25,9 @@ All configurations operate well within the 33.3 ms budget required for 30 FPS re
 
 ## Sample Output
 
-![Sample Segmentation](file:///home/nixnord/Projects/BitUNet/sample_vid.gif)
+![Sample Segmentation](sample_vid.gif)
 
-![Sample Frame](file:///home/nixnord/Projects/BitUNet/sample.jpeg)
+![Sample Frame](sample.jpeg)
 
 ## Requirements
 
