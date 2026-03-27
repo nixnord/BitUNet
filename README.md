@@ -23,6 +23,12 @@ Measured with FP16 asynchronous inference (`predict_video_async_fp16`):
 
 All configurations operate well within the 33.3 ms budget required for 30 FPS real-time video.
 
+## Sample Output
+
+![Sample Segmentation](file:///home/nixnord/Projects/BitUNet/sample_vid.gif)
+
+![Sample Frame](file:///home/nixnord/Projects/BitUNet/sample.jpeg)
+
 ## Requirements
 
 - Python 3.10+
