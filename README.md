@@ -92,9 +92,6 @@ BitUNet/
 ├── inference.py                    # Video inference pipeline (sync, async, FP16)
 ├── bitnet_ternary_exported.pth     # Pre-trained ternary weights (~40 MB)
 ├── requirements.txt                # Python dependencies
-├── DOCUMENTATION.md                # Detailed technical documentation
-├── unet.pdf                        # U-Net reference paper
-├── bitnet.pdf                      # BitNet b1.58 reference paper
 └── test_videos/                    # Input video directory
 ```
 
